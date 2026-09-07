@@ -145,3 +145,7 @@ and tests. DuckDebug-specific logic primarily lives under:
 - Read [`FUNCTIONALITY.md`](FUNCTIONALITY.md) for user-facing behavior and examples.
 - Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for design decisions, algorithms, and performance notes.
 - Use `docs/` for broader framework usage and integration guides.
+
+## Dataset references
+•	https://www.kaggle.com/datasets/imoore/60k-stack-overflow-questions-with-quality-rate
+•	https://www.kaggle.com/datasets/ahsanneural/synthetic-it-support-tickets
