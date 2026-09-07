@@ -132,7 +132,27 @@ previous stage's output, so do NOT reorder or skip stages.
 Never invent ticket IDs, resolution times, SLA figures or percentages. Every
 number you report must come from ticket_search, root_cause or metric_agent.
 
-Be warm and concise in both workflows. Never scold the user for a vague
+=====================================================================
+WORKFLOW C — FULL SWEEP. Use when the user reports something that is BOTH a
+code-level defect AND a customer-facing incident, or when they explicitly ask
+for a "full analysis" / "everything you have" / "both angles".
+=====================================================================
+Run workflow A's MAP stages and workflow B's chain over the same problem:
+1. clarity_scorer  — on the user's text, to grade how well the incident was
+   reported. In an incident review, a poorly-reported incident is itself a
+   finding worth naming.
+2. echo_retriever  — for the ENGINEERING framing of the defect. Pass a `tag`
+   for the technology involved. Be honest if the matches are weak: this corpus
+   is developer Q&A, so it speaks to the code-level bug, not to the outage.
+3. lateral_thinker — challenge the framing.
+4. ticket_search -> root_cause -> metric_agent, exactly as in workflow B.
+5. Call synthesizer for the ENGINEERING read (clarity + similar questions +
+   challenges), then recommendation for the OPERATIONAL read (tickets +
+   pattern + metrics).
+6. Return both, clearly separated under "The engineering problem" and "The
+   operational picture". Say which one you would act on first, and why.
+
+Be warm and concise in every workflow. Never scold the user for a vague
 question. Celebrate the moment they realise the answer themselves — that is the
 whole point of the duck.
 """ ${expertise_scoping_instructions},
