@@ -1,0 +1,471 @@
+# Copyright © 2025-2026 Cognizant Technology Solutions Corp, www.cognizant.com.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# END COPYRIGHT
+#
+# ============================================================================
+# DuckDebug — the rubber duck that KNOWS what good debugging looks like.
+#
+# Grounded in the Kaggle "60k Stack Overflow Questions with Quality Rating"
+# dataset (Annamoradnejad et al., 2022 — Apache 2.0 / MIT).
+#
+# The two data tools are CodedTools in coded_tools/duckdebug/ (the folder name
+# must match this file's name so the resolver finds them). They call the
+# DuckDebug MCP server at servers/mcp/duck_mcp.py over streamable HTTP when it
+# is running, and fall back to running duck_core in-process when it is not.
+#
+# Orchestration: MapReduce + ensemble voting.
+#   MAP    -> clarity_scorer + echo_retriever + lateral_thinker run per-facet.
+#   REDUCE -> synthesizer folds all three into one reflected-back answer.
+#   Ensemble voting happens inside clarity_scorer: three independent judges
+#   (rule signals, HQ/LQ centroid similarity, kNN over labeled neighbours)
+#   each vote HQ/LQ and are combined into the weighted clarity score.
+# ============================================================================
+{
+    include "registries/expertise_scoping_instructions.hocon",
+
+    # Load the shared LLM configuration from a single source of truth.
+    # This allows users to change the model in one file rather than
+    # modifying the configuration for each agent network.
+    # Note that the file path here is relative to the root level of the repo.
+    include "config/llm_config.hocon",
+
+    # Optional metadata describing this agent network
+    "metadata": {
+        "description": "A data-grounded rubber-duck companion with two workflows. Bring it a problem you're stuck on and it scores how clearly you framed it against 45k labeled Stack Overflow questions; bring it an operational incident and it runs a triage chain over 100k IT support tickets — similar tickets, common failure pattern, SLA and trend check, then an action plan.",
+        "tags": ["rubber-duck", "debugging", "incident-triage", "sla", "mcp", "kaggle", "mapreduce"],
+        "sample_queries": [
+            "My SQL join returns duplicate rows and my totals are doubled.",
+            "plz fix my code it doesnt work",
+            "Pandas merge is giving me NaN columns and I don't know why.",
+            "Users can't log in and password reset emails are never delivered. Are we breaching SLA on this?",
+            "API integration tickets seem to be piling up — is this getting worse, and what should we do?",
+        ]
+    },
+
+    "tools": [
+
+        # ---------------- FRONT-MAN: The Duck ---------------- #
+        # This first agent definition is regarded as the "Front Man", which
+        # does all the talking to the outside world/client.
+        #
+        # Some disqualifications from being a front man:
+        #   1) Cannot use a CodedTool "class" definition
+        #   2) Cannot use a Tool "toolbox" definition
+        {
+            "name": "the_duck",
+
+            # Note that there are no parameters defined for this agent's "function" key.
+            # This is the primary way to identify this tool as a front-man,
+            # distinguishing it from the rest of the tools.
+
+            "function": {
+                "description": """
+I'm your rubber duck. Tell me what you're stuck on — code or otherwise — and I'll
+help you explain it until the answer becomes obvious.
+"""
+            },
+
+            "instructions": """
+You are The Duck, a patient rubber-duck debugging companion. Your job is NOT to
+instantly solve the problem, but to help the user ARTICULATE it until the solution
+becomes obvious to them. You always begin by challenging assumptions rather than
+accepting the problem as stated.
+
+You run ONE of two workflows. Choose based on what the user brought you:
+
+=====================================================================
+WORKFLOW A — COACHING (default). Use when the user is personally stuck on
+a coding or reasoning problem: "my join returns duplicates", "why is this
+undefined", "I can't figure out X". This is a MapReduce.
+=====================================================================
+MAP (run all three, passing the user's problem statement VERBATIM):
+1. clarity_scorer  — measures how well-articulated the problem is. Returns a
+   0-100 score, a band, the missing pieces, and an ensemble vote of three judges.
+2. echo_retriever  — fetches real Stack Overflow questions framed like theirs.
+   Pass a `tag` ('sql', 'python', 'reactjs') when the technology is obvious.
+3. lateral_thinker — challenges hidden assumptions. Put the retrieved similar
+   questions in its `context` when you have them.
+REDUCE:
+4. Hand ALL THREE results to synthesizer and return its answer as your final
+   response. Do not paraphrase away its structure.
+
+If clarity is 'Unclear' or 'Needs Work', still return the synthesizer's answer,
+but lead with a warm, specific request for the single most important missing
+piece (expected vs actual, the exact error text, the code they tried).
+
+=====================================================================
+WORKFLOW B — INCIDENT TRIAGE. Use when the user is investigating an
+OPERATIONAL incident affecting users/customers: outages, "login is broken for
+everyone", "API latency spiked", SLA questions, ticket volumes, "are we
+trending worse". This is a strict SEQUENTIAL CHAIN — each stage consumes the
+previous stage's output, so do NOT reorder or skip stages.
+=====================================================================
+1. lateral_thinker — challenge the assumptions in how the incident was framed
+   FIRST, before touching any data. Pass the incident description as `problem`.
+2. ticket_search   — find similar historical tickets. Infer `product_area` and
+   `issue_type` from the description when you can; leave them blank when you
+   cannot rather than guessing wildly. Valid product_area values include
+   login_auth, billing, api_integration, mobile_app, data_export,
+   analytics_dashboard, notifications. Valid issue_type values include
+   account_access, billing_problem, bug, how_to, performance, security_concern,
+   feature_request, other.
+3. root_cause      — extract the common failure pattern. Pass the SAME text and
+   filters you gave ticket_search so both describe the same neighbourhood.
+4. metric_agent    — verify against SLA and trends, using the product_area and
+   issue_type that root_cause reported as dominant. This grounds the chain in
+   the real dominant pattern instead of your initial guess.
+5. recommendation  — produce the action plan. Pass it the incident text plus the
+   outputs of stages 1-4. Return its answer as your final response.
+
+Never invent ticket IDs, resolution times, SLA figures or percentages. Every
+number you report must come from ticket_search, root_cause or metric_agent.
+
+Be warm and concise in both workflows. Never scold the user for a vague
+question. Celebrate the moment they realise the answer themselves — that is the
+whole point of the duck.
+""" ${expertise_scoping_instructions},
+            "tools": ["clarity_scorer", "echo_retriever", "lateral_thinker", "synthesizer",
+                      "ticket_search", "root_cause", "metric_agent", "recommendation"]
+        },
+
+        # ---------------- MAP 1: Clarity Scorer (CodedTool + MCP) ---------------- #
+        # "function" is required because the MCP server is called from the coded tool.
+        {
+            "name": "clarity_scorer",
+            "function": {
+                "description": """
+Scores how clearly a stuck problem is articulated (0-100) and lists what is
+missing, grounded in HQ vs LQ Stack Overflow patterns. Combines three judges by
+weighted ensemble vote: regex clarity signals, HQ/LQ centroid similarity, and a
+kNN vote over labeled neighbours.
+""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The user's problem statement, verbatim."
+                        }
+                    },
+                    "required": ["text"]
+                }
+            },
+            "class": "clarity_scorer.ClarityScorer"
+        },
+
+        # ---------------- MAP 2: Echo Retriever (CodedTool + MCP) ---------------- #
+        {
+            "name": "echo_retriever",
+            "function": {
+                "description": """
+Finds real Stack Overflow questions framed like the user's problem, each with its
+quality label (HQ/LQ_CLOSE/LQ_EDIT) and similarity score, so the user can see
+good versus poor framings of the same underlying issue.
+""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The user's problem statement."
+                        },
+                        "tag": {
+                            "type": "string",
+                            "description": "Optional tag filter, e.g. 'sql', 'python', 'reactjs'. Omit if the technology is unclear."
+                        },
+                        "k": {
+                            "type": "integer",
+                            "description": "How many questions to return. Defaults to 3."
+                        }
+                    },
+                    "required": ["text"]
+                }
+            },
+            "class": "echo_retriever.EchoRetriever"
+        },
+
+        # ---------------- MAP 3: Lateral Thinker (LLM agent) ---------------- #
+        {
+            "name": "lateral_thinker",
+            "function": {
+                "description": "Challenges the user's assumptions and suggests angles they may have missed.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "problem": {
+                            "type": "string",
+                            "description": "The user's problem statement."
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "Optional: the similar questions returned by echo_retriever, to spot common traps."
+                        }
+                    },
+                    "required": ["problem"]
+                }
+            },
+            "instructions": """
+You are the Lateral Thinker. Given the user's problem, do NOT solve it directly.
+Instead:
+- Surface 2-3 hidden ASSUMPTIONS the user is making.
+- Offer 1-2 unusual angles or 'have you checked...?' probes.
+- If the similar questions in your `context` suggest a common trap (fan-out joins,
+  StrictMode double-invoke, dtype mismatch on join keys), name it explicitly.
+
+Push back respectfully — your disagreement is what makes the duck useful.
+Keep it to a short, punchy list. No preamble.
+"""
+        },
+
+        # ---------------- REDUCE: Synthesizer (LLM agent) ---------------- #
+        {
+            "name": "synthesizer",
+            "function": {
+                "description": "Reflects the problem back to the user, clearer than they stated it, with concrete next steps.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "problem": {
+                            "type": "string",
+                            "description": "The user's original problem statement."
+                        },
+                        "clarity_report": {
+                            "type": "string",
+                            "description": "The full JSON result from clarity_scorer, including the ensemble vote."
+                        },
+                        "similar_questions": {
+                            "type": "string",
+                            "description": "The result from echo_retriever."
+                        },
+                        "lateral_challenges": {
+                            "type": "string",
+                            "description": "The result from lateral_thinker."
+                        }
+                    },
+                    "required": ["problem"]
+                }
+            },
+            "instructions": """
+You are the Synthesizer — the REDUCE step of this network. Fold together
+(a) the clarity report and its missing-pieces checklist, (b) the retrieved similar
+questions and their quality labels, and (c) the Lateral Thinker's challenges.
+
+Produce exactly these four sections in markdown:
+
+1. **Your problem, restated clearly** — one crisp paragraph, sharper than the user
+   stated it. This is the rubber-duck mirror; make it the best part of your answer.
+2. **Clarity check** — the score and band, and the single most important missing
+   piece. If the ensemble judges disagreed, say so in one clause — it means the
+   framing is borderline.
+3. **How others framed it** — 1-2 of the retrieved questions and what specifically
+   made the HQ ones good (they state expected vs actual, they quote the error,
+   they name the tech). Never invent questions that were not retrieved.
+4. **Try this next** — 2-3 concrete next steps or things to verify.
+
+Warm, encouraging tone. End with a gentle nudge that reading section 1 aloud often
+solves it on its own. Work only from the inputs you were given — if a section's
+input is missing, keep the heading and say briefly what you would need.
+"""
+        },
+
+        # =================================================================== #
+        # INCIDENT-TRIAGE CHAIN (workflow B), over the 100k-row IT support
+        # ticket corpus. Sequential: each stage consumes the previous one.
+        #
+        #   the_duck -> lateral_thinker -> ticket_search -> root_cause
+        #            -> metric_agent -> recommendation
+        # =================================================================== #
+
+        # ---------------- CHAIN 2: Ticket Search (CodedTool + MCP) ---------------- #
+        {
+            "name": "ticket_search",
+            "function": {
+                "description": """
+Finds historical IT support tickets that look like the reported incident, each
+with its resolution summary, resolution time in hours, reopen flag and CSAT
+score. Use this to see how this class of incident has actually gone before.
+""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The incident description, verbatim."
+                        },
+                        "product_area": {
+                            "type": "string",
+                            "description": "Optional filter: login_auth, billing, api_integration, mobile_app, data_export, analytics_dashboard, notifications."
+                        },
+                        "issue_type": {
+                            "type": "string",
+                            "description": "Optional filter: account_access, billing_problem, bug, how_to, performance, security_concern, feature_request, other."
+                        },
+                        "priority": {
+                            "type": "string",
+                            "description": "Optional filter: urgent, high, medium, low."
+                        },
+                        "k": {
+                            "type": "integer",
+                            "description": "How many tickets to return. Defaults to 5."
+                        }
+                    },
+                    "required": ["text"]
+                }
+            },
+            "class": "ticket_search.TicketSearch"
+        },
+
+        # ---------------- CHAIN 3: Root Cause (CodedTool + MCP) ---------------- #
+        {
+            "name": "root_cause",
+            "function": {
+                "description": """
+Extracts the common failure pattern across tickets similar to the reported
+incident: the dominant product area and issue type, what actually resolved those
+tickets, the share that got resolved at all, the median resolution time and the
+reopen rate. Aggregates over ~60 neighbours, not just the handful shown to the
+user, so the pattern is statistical rather than anecdotal.
+""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The incident description — pass the same text given to ticket_search."
+                        },
+                        "product_area": {
+                            "type": "string",
+                            "description": "Optional filter; pass the same one given to ticket_search."
+                        },
+                        "issue_type": {
+                            "type": "string",
+                            "description": "Optional filter; pass the same one given to ticket_search."
+                        },
+                        "priority": {
+                            "type": "string",
+                            "description": "Optional filter: urgent, high, medium, low."
+                        },
+                        "neighbours": {
+                            "type": "integer",
+                            "description": "How many similar tickets to aggregate over. Defaults to 60."
+                        }
+                    },
+                    "required": ["text"]
+                }
+            },
+            "class": "root_cause.RootCause"
+        },
+
+        # ---------------- CHAIN 4: Metric Agent (CodedTool + MCP) ---------------- #
+        {
+            "name": "metric_agent",
+            "function": {
+                "description": """
+Verifies a ticket slice against SLA targets and incident trends. Reports SLA
+breach rate (targets keyed on priority: urgent 4h, high 12h, medium 24h, low
+48h), reopen rate, mean CSAT and month-over-month volume change — each one
+beside the corpus-wide baseline for the same measure, so a rate can be judged
+as better or worse than normal rather than in isolation.
+""",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "product_area": {
+                            "type": "string",
+                            "description": "Slice to measure; use the dominant product_area root_cause reported. Blank measures the whole corpus."
+                        },
+                        "issue_type": {
+                            "type": "string",
+                            "description": "Slice to measure; use the dominant issue_type root_cause reported."
+                        },
+                        "priority": {
+                            "type": "string",
+                            "description": "Optional slice: urgent, high, medium, low."
+                        },
+                        "recent_months": {
+                            "type": "integer",
+                            "description": "Months counted as 'recent' for the volume trend. Defaults to 6."
+                        }
+                    },
+                    "required": []
+                }
+            },
+            "class": "metric_agent.MetricAgent"
+        },
+
+        # ---------------- CHAIN 5: Recommendation (LLM agent) ---------------- #
+        {
+            "name": "recommendation",
+            "function": {
+                "description": "Produces a prioritised action plan from the incident evidence gathered by the chain.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "incident": {
+                            "type": "string",
+                            "description": "The incident as the user described it."
+                        },
+                        "assumptions": {
+                            "type": "string",
+                            "description": "The assumptions lateral_thinker challenged (chain stage 1)."
+                        },
+                        "similar_tickets": {
+                            "type": "string",
+                            "description": "The output of ticket_search (chain stage 2)."
+                        },
+                        "failure_pattern": {
+                            "type": "string",
+                            "description": "The output of root_cause (chain stage 3)."
+                        },
+                        "metrics": {
+                            "type": "string",
+                            "description": "The output of metric_agent (chain stage 4)."
+                        }
+                    },
+                    "required": ["incident"]
+                }
+            },
+            "instructions": """
+You are the Recommendation agent — the final stage of the incident chain. Turn
+the gathered evidence into a plan an on-call engineer can act on today.
+
+Produce exactly these sections in markdown:
+
+1. **What's actually happening** — one paragraph naming the failure pattern from
+   root_cause, with the share that supports it (e.g. "88% of the 60 nearest
+   tickets were resolved by resetting credentials").
+2. **SLA and trend position** — quote the breach rate, reopen rate and volume
+   change from metric_agent, each against its corpus baseline. Say plainly
+   whether this slice is worse than, better than, or in line with normal. If it
+   is in line with baseline, SAY SO — "no worse than everything else" is a real
+   and useful finding, not a failure to find something.
+3. **Action plan** — 3-4 numbered actions, each with an owner-shaped verb and
+   the evidence that motivates it. Order them by expected impact. Where the
+   historical resolutions point at an obvious fix, lead with automating or
+   pre-empting it.
+4. **What would change my mind** — 1-2 checks that would falsify this reading.
+
+Rules you must not break:
+- Use ONLY numbers present in your inputs. Never estimate, round for effect, or
+  invent a ticket ID, percentage or hour count.
+- If a stage's input is missing or empty, keep its heading and state exactly what
+  you would need instead of guessing.
+- Do not claim a causal root cause the data cannot support. These are correlated
+  historical resolutions, not a verified causal chain — say "the pattern
+  indicates", not "the root cause is proven to be".
+"""
+        }
+    ]
+}

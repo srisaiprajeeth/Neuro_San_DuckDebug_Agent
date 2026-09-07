@@ -1,0 +1,16 @@
+Id,Title,Body,Tags,Y
+1,How do I sort a dictionary by value in Python?,"I have a dictionary of word counts and I want to sort it by the values in descending order. I tried sorted(d) but that sorts by keys. Expected: list of (word, count) pairs ordered by count. Actual: keys sorted alphabetically. What is the correct approach using sorted() and a key function?",python|dictionary|sorting,HQ
+2,Why does my SQL JOIN return duplicate rows?,"I am joining Orders and OrderItems on OrderId. Expected one row per order, but I get one row per item, so totals are inflated (fan-out). Sample: order 5 has 3 items and SUM(Amount) triples. How do I aggregate correctly, maybe with GROUP BY or a subquery?",sql|join|group-by,HQ
+3,plz fix my code,"it doesnt work someone help asap",python,LQ_CLOSE
+4,Null reference exception in C# when reading list,"I get System.NullReferenceException at line 42 when iterating a List<Customer>. The list is populated from a DB call. Expected: iterate all customers. Actual: crash on first item. Stack trace points to customer.Name. How do I find which object is null?",c#|nullreferenceexception|list,HQ
+5,how to code,"i want to make website give full code",html|css,LQ_CLOSE
+6,React useEffect runs twice on mount,"My useEffect with an empty dependency array fires twice in development. Expected: one API call. Actual: two calls, duplicate data. Is this React 18 StrictMode double-invoke, and how should I handle it correctly?",reactjs|react-hooks|useeffect,HQ
+7,Getting 500 error need help urgent,"api returns 500 pls tell why not working thanks",rest|api,LQ_EDIT
+8,Pandas merge creates NaN columns unexpectedly,"When I merge two DataFrames on 'user_id', several columns become NaN. Expected: matched rows keep values. Actual: right-side columns are NaN for many rows. I suspect a dtype mismatch (int vs string key). How do I diagnose and fix the join keys?",python|pandas|merge,HQ
+9,decimal range gap between bands,"A score is DECIMAL(5,4) but my range bands are defined to 2 decimals (0 to 0.39, then 0.40 to 0.74). Values like 0.3950 fall in no band and return NULL. Expected: every score maps to a band. Actual: gap between 0.39 and 0.40. How do I make bands contiguous?",sql|decimal|ranges,HQ
+10,help me code fast,"need answer now homework due",java,LQ_CLOSE
+11,How to prevent SQL injection in parameterized query?,"I build SQL by string concatenation with user input. Expected: safe query. Actual: vulnerable to injection. How do I convert to parameterized queries in C# with SqlParameter, and what are the pitfalls?",c#|sql|security,HQ
+12,my app crash,"android app crash on open no idea why",android,LQ_EDIT
+13,Docker container exits immediately after start,"My container runs then exits with code 0. Expected: long-running service. Actual: exits right away. The CMD is a python script that finishes. How do I keep it running or debug what the process is doing?",docker|containers,HQ
+14,git merge conflict how resolve,"conflict happen when merge branch what do",git|merge,LQ_EDIT
+15,Async function returns Promise instead of value,"In JS my async function returns a Promise object not the value. Expected: the resolved string. Actual: [object Promise]. I think I'm missing await somewhere. How do I correctly await and where?",javascript|async-await|promise,HQ
